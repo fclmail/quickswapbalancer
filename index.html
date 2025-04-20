@@ -1,0 +1,218 @@
+<!DOCTYPE html>  
+<html lang="en">  
+<head>  
+  <title>Balancer/QuickSwap DApp</title>  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">  
+  <script src="https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js"></script>  
+  <style>  
+    body {  
+      font-family: Arial, sans-serif;  
+      max-width: 600px;  
+      margin: auto;  
+      padding: 20px;  
+      background-color: #001f3d;  
+      color: white;  
+    }  
+    input, button, select {  
+      padding: 12px;  
+      width: 100%;  
+      margin-top: 10px;  
+      border-radius: 8px;  
+      border: none;  
+      font-size: 16px;  
+    }  
+    button {  
+      background-color: #007bff;  
+      color: white;  
+    }  
+    #status {  
+      margin-top: 20px;  
+      color: lightgreen;  
+    }  
+    .error {  
+      color: red;  
+    }  
+    h3 {  
+      color: lightblue;  
+    }  
+  </style>  
+</head>  
+<body>  
+  <h2>Balancer to QuickSwap DApp</h2>  
+  <button onclick="connectWallet()">Connect Wallet</button>  
+  <p><strong>Wallet:</strong> <span id="wallet">Not Connected</span></p>  
+
+  <input id="tokenAddress" placeholder="Enter ERC-20 Token Address" />  
+  <input id="amount" placeholder="Amount to Buy/Sell" type="number" />  
+  
+  <button onclick="buyOnBalancer()">Buy on Balancer</button>  
+  <button onclick="sellOnQuickSwap()">Sell on QuickSwap</button>  
+
+  <h3>Balances</h3>  
+  <p>Token: <span id="tokenBal">-</span></p>  
+
+  <h3>Status</h3>  
+  <div id="status">Idle</div>  
+
+  <script>  
+    const USDC = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"; // Polygon USDC  
+    const BALANCER_ROUTER = "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5A6f"; // Balancer V2 Router  
+    const QUICKSWAP_ROUTER = "0xa5E082d2E0C4B166e3A9121ADE84B87fc3eA7F4A"; // QuickSwap Router  
+    let web3, account;  
+
+    async function connectWallet() {  
+      if (window.ethereum) {  
+        web3 = new Web3(window.ethereum);  
+        try {  
+          await ethereum.request({ method: 'eth_requestAccounts' });  
+          account = (await web3.eth.getAccounts())[0];  
+          document.getElementById('wallet').innerText = account;  
+          updateBalances();  
+          setStatus("Wallet connected successfully");  
+        } catch (err) {  
+          setStatus("Wallet connection rejected", true);  
+        }  
+      } else {  
+        setStatus("Please install MetaMask!", true);  
+      }  
+    }  
+
+    async function updateBalances() {  
+      const token = document.getElementById("tokenAddress").value;  
+      if (token) {  
+        const tokBal = await getERC20Balance(token);  
+        document.getElementById("tokenBal").innerText = tokBal;  
+      }  
+    }  
+
+    async function getERC20Balance(token) {  
+      const abi = [  
+        {  
+          constant: true,  
+          inputs: [{ name: "_owner", type: "address" }],  
+          name: "balanceOf",  
+          outputs: [{ name: "", type: "uint256" }],  
+          type: "function"  
+        }  
+      ];  
+      const decimalsAbi = [  
+        {  
+          constant: true,  
+          inputs: [],  
+          name: "decimals",  
+          outputs: [{ name: "", type: "uint8" }],  
+          type: "function"  
+        }  
+      ];  
+      const contract = new web3.eth.Contract(abi, token);  
+      const decimalsContract = new web3.eth.Contract(decimalsAbi, token);  
+      const raw = await contract.methods.balanceOf(account).call();  
+      const decimals = await decimalsContract.methods.decimals().call();  
+      return (raw / 10 ** decimals).toFixed(4);  
+    }  
+
+    async function buyOnBalancer() {  
+      const token = document.getElementById("tokenAddress").value;  
+      const amountToBuy = document.getElementById("amount").value;  
+
+      if (!token || !amountToBuy) {  
+        return setStatus("Enter a token address and amount", true);  
+      }  
+
+      // Convert amount to Wei (for USDC)  
+      const usdcAmountIn = web3.utils.toWei(amountToBuy.toString(), 'mwei');  
+
+      const balancerRouter = new web3.eth.Contract([ /* Balancer Route ABI */ ], BALANCER_ROUTER);  
+
+      // Approve Balancer to spend USDC  
+      const usdcContract = new web3.eth.Contract([  
+        {  
+          "constant": false,  
+          "inputs": [{ "name": "spender", "type": "address" }, { "name": "value", "type": "uint256" }],  
+          "name": "approve",  
+          "outputs": [{ "name": "", "type": "bool" }],  
+          "payable": false,  
+          "stateMutability": "nonpayable",  
+          "type": "function"  
+        }  
+      ], USDC);  
+
+      await usdcContract.methods.approve(BALANCER_ROUTER, usdcAmountIn).send({ from: account });  
+      setStatus("Approved USDC spending. Buying...");  
+
+      // Example: Buying token using Balancer  
+      await balancerRouter.methods.swapExactTokensForTokens(  
+        usdcAmountIn,  
+        0, // amountOutMin  
+        [USDC, token],  
+        account,  
+        Math.floor(Date.now() / 1000) + 60 * 20 // deadline  
+      ).send({ from: account })  
+      .on('transactionHash', (hash) => {  
+        setStatus(`Transaction sent: ${hash}`);  
+      })  
+      .on('receipt', async () => {  
+        setStatus("Purchase completed successfully!");  
+        updateBalances();  
+      })  
+      .on('error', (error) => {  
+        setStatus(`Error occurred: ${error.message}`, true);  
+      });  
+    }  
+
+    async function sellOnQuickSwap() {  
+      const token = document.getElementById("tokenAddress").value;  
+      const amountToSell = document.getElementById("amount").value;  
+
+      if (!token || !amountToSell) {  
+        return setStatus("Enter a token address and amount to sell", true);  
+      }  
+
+      const tokenAmountIn = web3.utils.toWei(amountToSell.toString(), 'ether'); // Assume token has 18 decimals  
+
+      const quickswapRouter = new web3.eth.Contract([ /* QuickSwap Router ABI */ ], QUICKSWAP_ROUTER);  
+
+      // Approve QuickSwap to spend Token  
+      const tokenContract = new web3.eth.Contract([  
+        {  
+          "constant": false,  
+          "inputs": [{ "name": "spender", "type": "address" }, { "name": "value", "type": "uint256" }],  
+          "name": "approve",  
+          "outputs": [{ "name": "", "type": "bool" }],  
+          "payable": false,  
+          "stateMutability": "nonpayable",  
+          "type": "function"  
+        }  
+      ], token);  
+
+      await tokenContract.methods.approve(QUICKSWAP_ROUTER, tokenAmountIn).send({ from: account });  
+      setStatus("Approved token spending. Selling...");  
+
+      const path = [token, USDC]; // Selling token for USDC  
+      await quickswapRouter.methods.swapExactTokensForTokens(  
+        tokenAmountIn,  
+        0, // amountOutMin  
+        path,  
+        account,  
+        Math.floor(Date.now() / 1000) + 60 * 20 // deadline  
+      ).send({ from: account })  
+      .on('transactionHash', (hash) => {  
+        setStatus(`Transaction sent: ${hash}`);  
+      })  
+      .on('receipt', async () => {  
+        setStatus("Sale completed successfully!");  
+        updateBalances();  
+      })  
+      .on('error', (error) => {  
+        setStatus(`Error occurred: ${error.message}`, true);  
+      });  
+    }  
+
+    function setStatus(msg, isError = false) {  
+      const el = document.getElementById("status");  
+      el.innerText = msg;  
+      el.className = isError ? "error" : "";  
+    }  
+  </script>  
+</body>  
+</html>
