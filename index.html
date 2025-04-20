@@ -1,106 +1,153 @@
-async function buyOnBalancer() {  
-    const token = document.getElementById("tokenAddress").value;  
-    const amountToBuy = document.getElementById("amount").value;  
+<!DOCTYPE html>  
+<html lang="en">  
+<head>  
+    <meta charset="UTF-8">  
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">  
+    <title>Token Swapper DApp</title>  
+    <script src="https://cdn.jsdelivr.net/npm/web3/dist/web3.min.js"></script>  
+    <style>  
+        #status {  
+            margin-top: 20px;  
+            color: red;  
+        }  
+    </style>  
+</head>  
+<body>  
+    <h1>Token Swapper DApp</h1>  
+    <label for="tokenAddress">Token Address:</label>  
+    <input type="text" id="tokenAddress" placeholder="Enter Token Address" required>  
+    <br>  
+    <label for="amount">Amount:</label>  
+    <input type="number" id="amount" placeholder="Enter Amount" required>  
+    <br>  
+    <button id="buyButton">Buy on Balancer</button>  
+    <button id="sellButton">Sell on QuickSwap</button>  
+    <div id="status"></div>  
 
-    if (!token || !amountToBuy) {  
-        return setStatus("Enter a token address and amount", true);  
-    }  
+    <script>  
+        const BALANCER_ROUTER = "0xYouBalancerRouterAddress"; // Replace with actual Balancer Router address  
+        const QUICKSWAP_ROUTER = "0xYouQuickSwapRouterAddress"; // Replace with actual QuickSwap Router address  
+        const USDC = "0xYourUSDCContractAddress"; // Replace with actual USDC contract address  
+        let account;  
+        let web3;  
 
-    try {  
-        // Convert amount to Wei (for USDC)  
-        const usdcAmountIn = web3.utils.toWei(amountToBuy.toString(), 'mwei');  
-        const balancerRouter = new web3.eth.Contract([ /* Balancer Router ABI */ ], BALANCER_ROUTER);  
-        
-        // Approve Balancer to spend USDC  
-        const usdcContract = new web3.eth.Contract([  
-            {  
-                "constant": false,  
-                "inputs": [{ "name": "spender", "type": "address" }, { "name": "value", "type": "uint256" }],  
-                "name": "approve",  
-                "outputs": [{ "name": "", "type": "bool" }],  
-                "payable": false,  
-                "stateMutability": "nonpayable",  
-                "type": "function"  
+        window.addEventListener('load', async () => {  
+            if (typeof window.ethereum !== 'undefined') {  
+                web3 = new Web3(window.ethereum);  
+                await window.ethereum.request({ method: 'eth_requestAccounts' });  
+                [account] = await web3.eth.getAccounts();  
+                console.log("Connected account:", account);  
+            } else {  
+                alert("Please install MetaMask!");  
             }  
-        ], USDC);  
+        });  
 
-        // Approving the token transfer  
-        const approval = await usdcContract.methods.approve(BALANCER_ROUTER, usdcAmountIn).send({ from: account });  
-        console.log("USDC approved for spending:", approval);  
-        setStatus("Approved USDC spending. Buying...");  
+        document.getElementById("buyButton").onclick = buyOnBalancer;  
+        document.getElementById("sellButton").onclick = sellOnQuickSwap;  
 
-        // Begin the trading process  
-        const result = await balancerRouter.methods.swapExactTokensForTokens(  
-            usdcAmountIn,  
-            0, // amountOutMin, can adjust based on slippage preferences  
-            [USDC, token],  
-            account,  
-            Math.floor(Date.now() / 1000) + 60 * 20 // deadline  
-        ).send({ from: account });  
+        async function buyOnBalancer() {  
+            const token = document.getElementById("tokenAddress").value;  
+            const amountToBuy = document.getElementById("amount").value;  
 
-        console.log("Transaction success:", result);  
-        setStatus("Purchase completed successfully!");  
-        updateBalances();  
-
-    } catch (error) {  
-        console.error("Error in buyOnBalancer:", error);  
-        setStatus(`Error occurred in buyOnBalancer: ${error.message}`, true);  
-    }  
-}  
-
-async function sellOnQuickSwap() {  
-    const token = document.getElementById("tokenAddress").value;  
-    const amountToSell = document.getElementById("amount").value;  
-
-    if (!token || !amountToSell) {  
-        return setStatus("Enter a token address and amount to sell", true);  
-    }  
-
-    try {  
-        // Convert token amount to Wei (assuming token has 18 decimals)  
-        const tokenAmountIn = web3.utils.toWei(amountToSell.toString(), 'ether');  
-        const quickswapRouter = new web3.eth.Contract([ /* QuickSwap Router ABI */ ], QUICKSWAP_ROUTER);  
-
-        // Approve QuickSwap to spend the specified amount of the token  
-        const tokenContract = new web3.eth.Contract([  
-            {  
-                "constant": false,  
-                "inputs": [{ "name": "spender", "type": "address" }, { "name": "value", "type": "uint256" }],  
-                "name": "approve",  
-                "outputs": [{ "name": "", "type": "bool" }],  
-                "payable": false,  
-                "stateMutability": "nonpayable",  
-                "type": "function"  
+            if (!token || !amountToBuy) {  
+                return setStatus("Enter a token address and amount", true);  
             }  
-        ], token);  
 
-        // Approving the token transfer  
-        const approval = await tokenContract.methods.approve(QUICKSWAP_ROUTER, tokenAmountIn).send({ from: account });  
-        console.log("Token approved for spending:", approval);  
-        setStatus("Approved token spending. Selling...");  
+            try {  
+                const usdcAmountIn = web3.utils.toWei(amountToBuy.toString(), 'mwei');  
+                const balancerRouter = new web3.eth.Contract([ /* Balancer Router ABI */ ], BALANCER_ROUTER);  
+                
+                const usdcContract = new web3.eth.Contract([  
+                    {  
+                        "constant": false,  
+                        "inputs": [{ "name": "spender", "type": "address" }, { "name": "value", "type": "uint256" }],  
+                        "name": "approve",  
+                        "outputs": [{ "name": "", "type": "bool" }],  
+                        "payable": false,  
+                        "stateMutability": "nonpayable",  
+                        "type": "function"  
+                    }  
+                ], USDC);  
 
-        // Begin selling process  
-        const path = [token, USDC]; // Selling token for USDC  
-        const result = await quickswapRouter.methods.swapExactTokensForTokens(  
-            tokenAmountIn,  
-            0, // amountOutMin  
-            path,  
-            account,  
-            Math.floor(Date.now() / 1000) + 60 * 20 // deadline  
-        ).send({ from: account });  
+                const approval = await usdcContract.methods.approve(BALANCER_ROUTER, usdcAmountIn).send({ from: account });  
+                console.log("USDC approved for spending:", approval);  
+                setStatus("Approved USDC spending. Buying...");  
 
-        console.log("Transaction success:", result);  
-        setStatus("Sale completed successfully!");  
-        updateBalances();  
+                const result = await balancerRouter.methods.swapExactTokensForTokens(  
+                    usdcAmountIn,  
+                    0, // amountOutMin  
+                    [USDC, token],  
+                    account,  
+                    Math.floor(Date.now() / 1000) + 60 * 20 // deadline  
+                ).send({ from: account });  
 
-    } catch (error) {  
-        console.error("Error in sellOnQuickSwap:", error);  
-        setStatus(`Error occurred in sellOnQuickSwap: ${error.message}`, true);  
-    }  
-}  
+                console.log("Transaction success:", result);  
+                setStatus("Purchase completed successfully!");  
+                updateBalances();  
 
-function setStatus(msg, isError = false) {  
-    const el = document.getElementById("status");  
-    el.innerText = msg;  
-    el.className = isError ? "error" : "";  
-}
+            } catch (error) {  
+                console.error("Error in buyOnBalancer:", error);  
+                setStatus(`Error occurred in buyOnBalancer: ${error.message}`, true);  
+            }  
+        }  
+
+        async function sellOnQuickSwap() {  
+            const token = document.getElementById("tokenAddress").value;  
+            const amountToSell = document.getElementById("amount").value;  
+
+            if (!token || !amountToSell) {  
+                return setStatus("Enter a token address and amount to sell", true);  
+            }  
+
+            try {  
+                const tokenAmountIn = web3.utils.toWei(amountToSell.toString(), 'ether');  
+                const quickswapRouter = new web3.eth.Contract([ /* QuickSwap Router ABI */ ], QUICKSWAP_ROUTER);  
+
+                const tokenContract = new web3.eth.Contract([  
+                    {  
+                        "constant": false,  
+                        "inputs": [{ "name": "spender", "type": "address" }, { "name": "value", "type": "uint256" }],  
+                        "name": "approve",  
+                        "outputs": [{ "name": "", "type": "bool" }],  
+                        "payable": false,  
+                        "stateMutability": "nonpayable",  
+                        "type": "function"  
+                    }  
+                ], token);  
+
+                const approval = await tokenContract.methods.approve(QUICKSWAP_ROUTER, tokenAmountIn).send({ from: account });  
+                console.log("Token approved for spending:", approval);  
+                setStatus("Approved token spending. Selling...");  
+
+                const path = [token, USDC]; // Selling token for USDC  
+                const result = await quickswapRouter.methods.swapExactTokensForTokens(  
+                    tokenAmountIn,  
+                    0, // amountOutMin  
+                    path,  
+                    account,  
+                    Math.floor(Date.now() / 1000) + 60 * 20 // deadline  
+                ).send({ from: account });  
+
+                console.log("Transaction success:", result);  
+                setStatus("Sale completed successfully!");  
+                updateBalances();  
+
+            } catch (error) {  
+                console.error("Error in sellOnQuickSwap:", error);  
+                setStatus(`Error occurred in sellOnQuickSwap: ${error.message}`, true);  
+            }  
+        }  
+
+        function setStatus(msg, isError = false) {  
+            const el = document.getElementById("status");  
+            el.innerText = msg;  
+            el.className = isError ? "error" : "";  
+        }  
+
+        function updateBalances() {  
+            // Implement your logic here to update user balances after trade  
+            console.log("Update balances function placeholder.");  
+        }  
+    </script>  
+</body>  
+</html>
